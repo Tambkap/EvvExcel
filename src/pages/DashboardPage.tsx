@@ -177,6 +177,8 @@ export function DashboardPage() {
       const billableUnitsIdx = acceptedResult.headers.indexOf('Billable Units');
       const billableUnitsTotalIdx = acceptedResult.headers.indexOf('Billable Units Total');
       const priorClaimIdx = acceptedResult.headers.indexOf('Prior Claim');
+      const possibleIdx = acceptedResult.headers.indexOf('Possible');
+      const confirmedIdx = acceptedResult.headers.indexOf('Confirmed');
       const visitIdIdx = acceptedResult.headers.indexOf('Visit ID');
 
       // Build lookup map for Claim_Search: Visit ID -> Claim Units
@@ -206,6 +208,7 @@ export function DashboardPage() {
       // Calculate sum for each group
       const groupSums: { [key: string]: number } = {};
       const groupLastIndex: { [key: string]: number } = {};
+      const groupPriorClaim: { [key: string]: number } = {};
 
       sortedAcceptedData.forEach((row, index) => {
         const key = createGroupKey(row);
@@ -216,6 +219,23 @@ export function DashboardPage() {
         }
         groupSums[key] += billableUnits;
         groupLastIndex[key] = index; // Track last index for each group
+
+        // Also collect Prior Claim for each group (sum of all prior claims in group)
+        const visitId = String(row[visitIdIdx] || '');
+        if (visitId && claimUnitsMap[visitId] !== undefined) {
+          if (!groupPriorClaim[key]) {
+            groupPriorClaim[key] = 0;
+          }
+          groupPriorClaim[key] += parseFloat(String(claimUnitsMap[visitId])) || 0;
+        }
+      });
+
+      // Calculate Possible for each group: if Billable Units Total = sum of Prior Claims => 'NO', else 'YES'
+      const groupPossible: { [key: string]: string } = {};
+      Object.keys(groupSums).forEach(key => {
+        const totalSum = groupSums[key];
+        const priorSum = groupPriorClaim[key] || 0;
+        groupPossible[key] = totalSum === priorSum ? 'NO' : 'YES';
       });
 
       // Update data: only show Billable Units Total on the last row of each group
@@ -238,8 +258,88 @@ export function DashboardPage() {
         } else {
           newRow[priorClaimIdx] = '';
         }
+
+        // Display Possible on ALL rows of the group
+        newRow[possibleIdx] = groupPossible[key] || '';
+
+        // Calculate Confirmed: if Possible != 'NO' => 'Review', else blank
+        if (newRow[possibleIdx] !== 'NO' && newRow[possibleIdx] !== '') {
+          newRow[confirmedIdx] = 'Review';
+        } else {
+          newRow[confirmedIdx] = '';
+        }
         
         return newRow;
+      });
+
+      // Create "CLAIMS FOR INVESTIGATION" tab - filtered from Accepted_Visits
+      // Conditions: Confirmed = 'Review' AND Billable Units != 0
+      const investigationExtraColumns = [
+        'SERVICE PROVIDER ID',
+        'Batch/ICN#',
+        'Status',
+        'Amount',
+        'Denial Code',
+        'Comment 1',
+        'Comment 2',
+        'Resolved'
+      ];
+      const investigationHeaders = [...acceptedResult.headers, ...investigationExtraColumns];
+      
+      const filteredInvestigationData = processedAcceptedData
+        .filter(row => {
+          const confirmed = row[confirmedIdx];
+          const billableUnits = parseFloat(String(row[billableUnitsIdx] || 0)) || 0;
+          return confirmed === 'Review' && billableUnits !== 0;
+        })
+        .map(row => {
+          // Add empty values for the extra columns
+          return [...row, '', '', '', '', '', '', '', ''];
+        });
+
+      // Group data by Payer Name, then by Medicaid ID for CLAIMS FOR INVESTIGATION
+      // Sort first by Payer Name, then Medicaid ID
+      const sortedInvestigationData = [...filteredInvestigationData].sort((a, b) => {
+        const payerA = String(a[payerNameIdx] || '').toLowerCase();
+        const payerB = String(b[payerNameIdx] || '').toLowerCase();
+        if (payerA !== payerB) return payerA.localeCompare(payerB);
+        
+        const medicaidA = String(a[medicaidIdIdx] || '');
+        const medicaidB = String(b[medicaidIdIdx] || '');
+        return medicaidA.localeCompare(medicaidB);
+      });
+
+      // Insert group header rows for Payer Name and Medicaid ID
+      const claimsForInvestigation: any[][] = [];
+      let currentPayerName = '';
+      let currentMedicaidId = '';
+      const emptyRow = new Array(investigationHeaders.length).fill('');
+
+      sortedInvestigationData.forEach(row => {
+        const payerName = String(row[payerNameIdx] || '');
+        const medicaidId = String(row[medicaidIdIdx] || '');
+
+        // Check if Payer Name changed - add Payer Name header row
+        if (payerName !== currentPayerName) {
+          currentPayerName = payerName;
+          currentMedicaidId = ''; // Reset medicaid tracking when payer changes
+          const payerHeaderRow = [...emptyRow];
+          payerHeaderRow[0] = payerName; // Put Payer Name in first column
+          payerHeaderRow._isGroupHeader = 'payer'; // Mark as group header
+          claimsForInvestigation.push(payerHeaderRow);
+        }
+
+        // Check if Medicaid ID changed - add Medicaid ID header row
+        if (medicaidId !== currentMedicaidId) {
+          currentMedicaidId = medicaidId;
+          const medicaidHeaderRow = [...emptyRow];
+          medicaidHeaderRow[0] = `Medicaid ID: ${medicaidId}`; // Put Medicaid ID in first column
+          medicaidHeaderRow._isGroupHeader = 'medicaid'; // Mark as group header
+          claimsForInvestigation.push(medicaidHeaderRow);
+        }
+
+        // Add the actual data row
+        claimsForInvestigation.push(row);
       });
 
       const tabs: TabData[] = [
@@ -254,6 +354,12 @@ export function DashboardPage() {
           title: 'Claim_Search',
           headers: claimResult.headers,
           data: claimResult.data
+        },
+        {
+          id: 'investigation',
+          title: 'CLAIMS FOR INVESTIGATION',
+          headers: investigationHeaders,
+          data: claimsForInvestigation
         }
       ];
 

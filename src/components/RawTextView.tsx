@@ -123,27 +123,58 @@ export function RawTextView({ tabs, onClose }: RawTextViewProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {tableData.map((row, rowIndex) => (
-                <tr 
-                  key={rowIndex} 
-                  className="hover:bg-blue-50 transition-colors"
-                >
-                  <td className="px-3 sm:px-4 py-3 text-gray-400 text-xs font-mono bg-gray-50/50 sticky left-0">
-                    {rowIndex + 1}
-                  </td>
-                  {tableHeaders.map((_, colIndex) => (
-                    <td
-                      key={colIndex}
-                      className="px-3 sm:px-4 py-3 text-gray-700 whitespace-nowrap"
-                    >
-                      {row[colIndex] !== undefined && row[colIndex] !== null
-                        ? String(row[colIndex])
-                        : <span className="text-gray-300">—</span>
+              {tableData.map((row, rowIndex) => {
+                // Check if this is a group header row (for CLAIMS FOR INVESTIGATION tab)
+                const isPayerHeader = (row as any)._isGroupHeader === 'payer';
+                const isMedicaidHeader = (row as any)._isGroupHeader === 'medicaid';
+                const isGroupHeader = isPayerHeader || isMedicaidHeader;
+
+                if (isGroupHeader) {
+                  return (
+                    <tr 
+                      key={rowIndex} 
+                      className={isPayerHeader 
+                        ? "bg-green-100 border-t-2 border-green-400" 
+                        : "bg-yellow-50 border-t border-yellow-300"
                       }
+                    >
+                      <td className="px-3 sm:px-4 py-2 text-gray-400 text-xs font-mono bg-gray-50/50 sticky left-0">
+                        
+                      </td>
+                      <td
+                        colSpan={tableHeaders.length}
+                        className={`px-3 sm:px-4 py-2 font-bold whitespace-nowrap ${
+                          isPayerHeader ? 'text-green-800 text-sm' : 'text-yellow-800 text-sm'
+                        }`}
+                      >
+                        {row[0]}
+                      </td>
+                    </tr>
+                  );
+                }
+
+                return (
+                  <tr 
+                    key={rowIndex} 
+                    className="hover:bg-blue-50 transition-colors"
+                  >
+                    <td className="px-3 sm:px-4 py-3 text-gray-400 text-xs font-mono bg-gray-50/50 sticky left-0">
+                      {rowIndex + 1}
                     </td>
-                  ))}
-                </tr>
-              ))}
+                    {tableHeaders.map((_, colIndex) => (
+                      <td
+                        key={colIndex}
+                        className="px-3 sm:px-4 py-3 text-gray-700 whitespace-nowrap"
+                      >
+                        {row[colIndex] !== undefined && row[colIndex] !== null
+                          ? String(row[colIndex])
+                          : <span className="text-gray-300">—</span>
+                        }
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
