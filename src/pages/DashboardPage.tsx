@@ -15,7 +15,12 @@ const EVV_ACCEPTED_COLUMNS = [
   'Modifiers',
   'Visit Date',
   'EVV Bill Hours',
-  'Billable Units'
+  'Billable Units',
+  'Billable Units Total',
+  'Prior Claim',
+  'Possible',
+  'Confirmed',
+  'Other'
 ];
 
 // Columns to extract from EVV_Claim_Search
@@ -163,12 +168,86 @@ export function DashboardPage() {
         return timeA - timeB;
       });
 
+      // Calculate Billable Units Total for each group
+      // Group key: Medicaid ID + Member First Name + Member Last Name + HCPCS Code + Modifiers + Visit Date
+      const memberFirstNameIdx = acceptedResult.headers.indexOf('Member First Name');
+      const memberLastNameIdx = acceptedResult.headers.indexOf('Member Last Name');
+      const hcpcsCodeIdx = acceptedResult.headers.indexOf('HCPCS Code');
+      const modifiersIdx = acceptedResult.headers.indexOf('Modifiers');
+      const billableUnitsIdx = acceptedResult.headers.indexOf('Billable Units');
+      const billableUnitsTotalIdx = acceptedResult.headers.indexOf('Billable Units Total');
+      const priorClaimIdx = acceptedResult.headers.indexOf('Prior Claim');
+      const visitIdIdx = acceptedResult.headers.indexOf('Visit ID');
+
+      // Build lookup map for Claim_Search: Visit ID -> Claim Units
+      const claimVisitIdIdx = claimResult.headers.indexOf('Visit ID');
+      const claimUnitsIdx = claimResult.headers.indexOf('Claim Units');
+      const claimUnitsMap: { [visitId: string]: any } = {};
+      claimResult.data.forEach(row => {
+        const visitId = String(row[claimVisitIdIdx] || '');
+        if (visitId) {
+          claimUnitsMap[visitId] = row[claimUnitsIdx];
+        }
+      });
+
+      // Helper to create group key
+      const createGroupKey = (row: any[]) => {
+        const medicaidId = String(row[medicaidIdIdx] || '');
+        const firstName = String(row[memberFirstNameIdx] || '');
+        const lastName = String(row[memberLastNameIdx] || '');
+        const hcpcs = String(row[hcpcsCodeIdx] || '');
+        const modifiers = String(row[modifiersIdx] || '');
+        const visitDate = row[visitDateIdx] instanceof Date 
+          ? row[visitDateIdx].toISOString() 
+          : String(row[visitDateIdx] || '');
+        return `${medicaidId}|${firstName}|${lastName}|${hcpcs}|${modifiers}|${visitDate}`;
+      };
+
+      // Calculate sum for each group
+      const groupSums: { [key: string]: number } = {};
+      const groupLastIndex: { [key: string]: number } = {};
+
+      sortedAcceptedData.forEach((row, index) => {
+        const key = createGroupKey(row);
+        const billableUnits = parseFloat(String(row[billableUnitsIdx] || 0)) || 0;
+        
+        if (!groupSums[key]) {
+          groupSums[key] = 0;
+        }
+        groupSums[key] += billableUnits;
+        groupLastIndex[key] = index; // Track last index for each group
+      });
+
+      // Update data: only show Billable Units Total on the last row of each group
+      // Also populate Prior Claim from Claim_Search
+      const processedAcceptedData = sortedAcceptedData.map((row, index) => {
+        const key = createGroupKey(row);
+        const newRow = [...row];
+        
+        // Only show sum on the last row of each group
+        if (groupLastIndex[key] === index) {
+          newRow[billableUnitsTotalIdx] = groupSums[key];
+        } else {
+          newRow[billableUnitsTotalIdx] = '';
+        }
+
+        // Populate Prior Claim from Claim_Search based on Visit ID
+        const visitId = String(row[visitIdIdx] || '');
+        if (visitId && claimUnitsMap[visitId] !== undefined) {
+          newRow[priorClaimIdx] = claimUnitsMap[visitId];
+        } else {
+          newRow[priorClaimIdx] = '';
+        }
+        
+        return newRow;
+      });
+
       const tabs: TabData[] = [
         {
           id: 'accepted',
           title: 'Accepted_Visits',
           headers: acceptedResult.headers,
-          data: sortedAcceptedData
+          data: processedAcceptedData
         },
         {
           id: 'claim',
