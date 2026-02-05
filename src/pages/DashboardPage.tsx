@@ -323,18 +323,18 @@ export function DashboardPage() {
         if (payerName !== currentPayerName) {
           currentPayerName = payerName;
           currentMedicaidId = ''; // Reset medicaid tracking when payer changes
-          const payerHeaderRow = [...emptyRow];
+          const payerHeaderRow: any[] = [...emptyRow];
           payerHeaderRow[0] = payerName; // Put Payer Name in first column
-          payerHeaderRow._isGroupHeader = 'payer'; // Mark as group header
+          (payerHeaderRow as any)._isGroupHeader = 'payer'; // Mark as group header
           claimsForInvestigation.push(payerHeaderRow);
         }
 
         // Check if Medicaid ID changed - add Medicaid ID header row
         if (medicaidId !== currentMedicaidId) {
           currentMedicaidId = medicaidId;
-          const medicaidHeaderRow = [...emptyRow];
+          const medicaidHeaderRow: any[] = [...emptyRow];
           medicaidHeaderRow[0] = `Medicaid ID: ${medicaidId}`; // Put Medicaid ID in first column
-          medicaidHeaderRow._isGroupHeader = 'medicaid'; // Mark as group header
+          (medicaidHeaderRow as any)._isGroupHeader = 'medicaid'; // Mark as group header
           claimsForInvestigation.push(medicaidHeaderRow);
         }
 

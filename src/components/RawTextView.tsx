@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import ExcelJS from 'exceljs';
 
 interface TabData {
   id: string;
@@ -14,8 +15,109 @@ interface RawTextViewProps {
 
 export function RawTextView({ tabs, onClose }: RawTextViewProps) {
   const [activeTab, setActiveTab] = useState(tabs[0]?.id || '');
+  const [isExporting, setIsExporting] = useState(false);
 
   const activeTabData = tabs.find(tab => tab.id === activeTab);
+
+  // Export all tabs to Excel file
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    try {
+      const workbook = new ExcelJS.Workbook();
+      workbook.created = new Date();
+      workbook.modified = new Date();
+
+      // Create a sheet for each tab
+      tabs.forEach(tab => {
+        // Sanitize sheet name (Excel has 31 char limit and certain characters not allowed)
+        const sheetName = `EVV_${tab.title}`.substring(0, 31).replace(/[*?:/\\[\]]/g, '_');
+        const worksheet = workbook.addWorksheet(sheetName);
+
+        // Add headers
+        worksheet.addRow(tab.headers);
+
+        // Style header row
+        const headerRow = worksheet.getRow(1);
+        headerRow.font = { bold: true };
+        headerRow.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF4472C4' }
+        };
+        headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+        // Add data rows (skip group header rows for investigation tab)
+        tab.data.forEach(row => {
+          // Skip group header rows (they have _isGroupHeader property)
+          if ((row as any)._isGroupHeader) {
+            // For group headers, add a styled row
+            const groupRow = worksheet.addRow([row[0]]);
+            const isPayerHeader = (row as any)._isGroupHeader === 'payer';
+            groupRow.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: isPayerHeader ? 'FF90EE90' : 'FFFFFFCC' }
+            };
+            groupRow.font = { bold: true };
+            // Merge cells for group header
+            worksheet.mergeCells(groupRow.number, 1, groupRow.number, tab.headers.length);
+          } else {
+            // Regular data row
+            const dataRow = row.map(cell => {
+              // Handle Date objects
+              if (cell instanceof Date) {
+                return cell;
+              }
+              return cell;
+            });
+            worksheet.addRow(dataRow);
+          }
+        });
+
+        // Auto-fit columns
+        worksheet.columns.forEach((column, index) => {
+          let maxLength = tab.headers[index]?.length || 10;
+          tab.data.forEach(row => {
+            if (!(row as any)._isGroupHeader) {
+              const cellValue = row[index];
+              const cellLength = cellValue ? String(cellValue).length : 0;
+              if (cellLength > maxLength) {
+                maxLength = cellLength;
+              }
+            }
+          });
+          column.width = Math.min(maxLength + 2, 50);
+        });
+
+        // Freeze header row
+        worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+      });
+
+      // Generate Excel file and download
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const today = new Date();
+      const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+      link.download = `Processed_${dateStr}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+    } catch (error) {
+      console.error('Error exporting Excel:', error);
+      alert('Error exporting Excel file. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   if (!tabs || tabs.length === 0) {
     return (
@@ -70,37 +172,65 @@ export function RawTextView({ tabs, onClose }: RawTextViewProps) {
           </div>
           
           {/* Tabs */}
-          <div className="px-4 sm:px-6 flex gap-1">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-4 sm:px-6 py-3 font-semibold text-sm sm:text-base transition-all rounded-t-xl ${
-                  activeTab === tab.id
-                    ? 'bg-white text-blue-600 shadow-lg'
-                    : 'text-white/80 hover:text-white hover:bg-white/10'
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  {tab.id === 'accepted' ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                  )}
-                  <span className="hidden sm:inline">{tab.title}</span>
-                  <span className="sm:hidden">{tab.title.replace('EVV_', '').replace('_', ' ')}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    activeTab === tab.id ? 'bg-blue-100 text-blue-600' : 'bg-white/20 text-white'
-                  }`}>
-                    {tab.data.length.toLocaleString()}
+          <div className="px-4 sm:px-6 flex items-center justify-between">
+            <div className="flex gap-1">
+              {tabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-4 sm:px-6 py-3 font-semibold text-sm sm:text-base transition-all rounded-t-xl ${
+                    activeTab === tab.id
+                      ? 'bg-white text-blue-600 shadow-lg'
+                      : 'text-white/80 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    {tab.id === 'accepted' ? (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    )}
+                    <span className="hidden sm:inline">{tab.title}</span>
+                    <span className="sm:hidden">{tab.title.replace('EVV_', '').replace('_', ' ')}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      activeTab === tab.id ? 'bg-blue-100 text-blue-600' : 'bg-white/20 text-white'
+                    }`}>
+                      {tab.data.length.toLocaleString()}
+                    </span>
                   </span>
-                </span>
-              </button>
-            ))}
+                </button>
+              ))}
+            </div>
+            <button 
+              onClick={handleExportExcel}
+              disabled={isExporting}
+              className={`px-4 py-2 rounded-lg font-semibold transition-colors flex items-center gap-2 shadow-md mb-1 ${
+                isExporting 
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                  : 'bg-white hover:bg-gray-100 text-green-600'
+              }`}
+            >
+              {isExporting ? (
+                <>
+                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Export Excel
+                </>
+              )}
+            </button>
           </div>
         </div>
 

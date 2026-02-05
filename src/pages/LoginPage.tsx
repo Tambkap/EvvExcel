@@ -18,7 +18,7 @@ export function LoginPage() {
     try {
       const success = await login(username, password);
       if (success) {
-        navigate('/dashboard');
+        navigate('/excel-combinator');
       } else {
         setError('Login failed. Please try again.');
       }

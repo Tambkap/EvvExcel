@@ -11,15 +11,15 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route
-            path="/dashboard"
+            path="/excel-combinator"
             element={
               <ProtectedRoute>
                 <DashboardPage />
               </ProtectedRoute>
             }
           />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<Navigate to="/excel-combinator" replace />} />
+          <Route path="*" element={<Navigate to="/excel-combinator" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
