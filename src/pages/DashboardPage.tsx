@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { RawTextView } from '../components/RawTextView';
-import ExcelJS from 'exceljs';
+import * as XLSX from 'xlsx';
 
 // Columns to extract from EVV_Accepted_Visits
 const EVV_ACCEPTED_COLUMNS = [
@@ -85,48 +85,53 @@ export function DashboardPage() {
     }
   };
 
-  // Helper function to extract data from Excel file
+  // Helper function to extract data from Excel file using SheetJS
   const extractExcelData = async (file: File, columns: string[]): Promise<{ headers: string[]; data: any[][] }> => {
     const arrayBuffer = await file.arrayBuffer();
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(arrayBuffer);
     
-    const worksheet = workbook.worksheets[0];
-    if (!worksheet) {
+    // Read with SheetJS (better compatibility with Mac files and various formats)
+    const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true, cellNF: false, cellText: false });
+    
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
       throw new Error('No worksheet found in the file');
     }
-
-    // Get header row
-    const headerRow = worksheet.getRow(1);
-    const allHeaders: string[] = [];
+    
+    const worksheet = workbook.Sheets[sheetName];
+    
+    // Convert to JSON with header row
+    const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '' });
+    
+    if (jsonData.length === 0) {
+      throw new Error('No data found in the worksheet');
+    }
+    
+    // First row is headers
+    const allHeaders: string[] = (jsonData[0] as any[]).map(h => String(h || '').trim());
     const columnIndices: { [key: string]: number } = {};
     
-    headerRow.eachCell((cell, colNumber) => {
-      const cellValue = cell.value?.toString().trim() || '';
-      allHeaders.push(cellValue);
-      columnIndices[cellValue] = colNumber;
+    allHeaders.forEach((header, index) => {
+      columnIndices[header] = index;
     });
 
     // Determine which columns to extract
     const targetColumns = columns.length > 0 ? columns : allHeaders;
     
-    // Extract data rows
+    // Extract data rows (skip header row)
     const extractedData: any[][] = [];
     
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return; // Skip header row
-      
+    for (let i = 1; i < jsonData.length; i++) {
+      const row = jsonData[i] as any[];
       const rowData: any[] = targetColumns.map(colName => {
         const colIndex = columnIndices[colName];
-        if (colIndex) {
-          const cell = row.getCell(colIndex);
-          return cell.value ?? '';
+        if (colIndex !== undefined && row[colIndex] !== undefined) {
+          return row[colIndex];
         }
         return '';
       });
       
       extractedData.push(rowData);
-    });
+    }
 
     return { headers: targetColumns, data: extractedData };
   };
